@@ -9,6 +9,7 @@ import geopandas as gpd
 import re
 #from db_manager import ConnectionManager
 #cnxn = ConnectionManager()
+from cityworks.database import get_engine
 from .operations import insert_row, update_fields, update_status, query_records, format_sde_query
 import cityworks.client.exceptions as exc
 
