@@ -40,12 +40,12 @@ def build_connection_string(
     """
     server_from_database = {
         'Traffic':'arcsde',
-        'CMMS':'cmms',
+        'cmms':'cmms',
         'PUReporting':'pubworksdbprd'
     }
     if not server:
         server = server_from_database.get(database, None)
-        
+
     params = {
         "DRIVER": driver,
         "SERVER": server,
