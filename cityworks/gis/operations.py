@@ -7,8 +7,7 @@ from sqlalchemy.engine import Engine
 import pandas as pd
 import geopandas as gpd
 import re
-from db_manager import ConnectionManager
-cnxn = ConnectionManager()
+from cityworks.database import get_engine
 
 
 def format_sde_query(table_name) -> str: 
@@ -32,7 +31,7 @@ def format_sde_query(table_name) -> str:
             TABLE_SCHEMA = 'data_admin8'
             AND TABLE_NAME = '{table_name}'
         ORDER BY ORDINAL_POSITION;
-        """, cnxn.get_engine('Traffic'))
+        """, get_engine('Traffic'))
     
     normal_cols = [col for col, col_type in zip(table_info['COLUMN_NAME'], table_info['DATA_TYPE']) if col_type != 'geometry']
     geo_cols = [col+f'.STAsBinary() as geometry' for col, col_type in zip(table_info['COLUMN_NAME'], table_info['DATA_TYPE']) if col_type == 'geometry']
@@ -299,53 +298,6 @@ def get_max_value(table_name: str, field: str, db: str = 'Traffic', schema: str 
     return {field:max_value}
 
 
-def get_record(
-    table_name: str,
-    where_clause: Optional[str] = None
-) -> Optional[Dict[str, Any]]:
-    """
-    Retrieve a single record from a table.
-    
-    Args:
-        engine: SQLAlchemy engine from ConnectionManager
-        table_name: Name of the table
-        record_id: Value to match in the ID field
-        id_field: Name of the ID field to match on
-        fields: List of field names to retrieve (None = all fields)
-        schema: Database schema (default: 'azteca')
-        
-    Returns:
-        Dictionary of field names to values, or None if not found
-        
-    Example:
-        engine = cnxn.get_engine('sde')
-        
-        record = get_record(
-            engine,
-            'PU_SPACESOUTOFSERVICE',
-            'SP-123',
-            id_field='SPACEID'
-        )
-    """
-    qry = format_sde_query(table_name)
-
-    field_list = ', '.join(fields) if fields else '*'
-    
-    query = text(f"""
-        SELECT {field_list}
-        FROM {schema}.{table_name}
-        WHERE {id_field} = :id_value
-    """)
-    
-    with engine.connect() as conn:
-        result = conn.execute(query, {'id_value': record_id})
-        row = result.fetchone()
-        
-        if row:
-            return dict(row._mapping)
-    
-    return None
-
 
 def query_records(
     engine: Engine,
@@ -449,4 +401,4 @@ def get_spaces_out_of_service(spaces: List[str]) -> pd.DataFrame:
         WHERE 
             {where_clause}
         ORDER BY SpaceNumber, Date_Out, Date_Returned
-        """, cnxn.get_engine('Traffic'), geom_col='geometry', crs="EPSG:8193")
+        """, get_engine('Traffic'), geom_col='geometry', crs="EPSG:8193")
