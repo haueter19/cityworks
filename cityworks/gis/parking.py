@@ -7,8 +7,6 @@ from sqlalchemy import text
 import pandas as pd
 import geopandas as gpd
 import re
-#from db_manager import ConnectionManager
-#cnxn = ConnectionManager()
 from cityworks.database import get_engine
 from .operations import insert_row, update_fields, update_status, query_records, format_sde_query
 import cityworks.client.exceptions as exc
@@ -31,9 +29,7 @@ def add_space_out_of_service(space_data: List[Dict]) -> int:
         OBJECTID of the new record
         
     Example:
-        from db_manager import ConnectionManager
-        cnxn = ConnectionManager()
-        engine = cnxn.get_engine('sde')
+        engine = get_engine('sde')
         
         oid = add_space_out_of_service(
             engine,
@@ -55,11 +51,11 @@ def add_space_out_of_service(space_data: List[Dict]) -> int:
                 :removal_method, :removed_by, :reason_removed, :ada_relocation)
         """)
     
-    #max_values = pd.read_sql("SELECT max(OBJECTID) max_object_id, max(Event_ID) max_event_id FROM data_admin8.PU_SPACESOUTOFSERVICE", cnxn.get_engine('Traffic'))
+    #max_values = pd.read_sql("SELECT max(OBJECTID) max_object_id, max(Event_ID) max_event_id FROM data_admin8.PU_SPACESOUTOFSERVICE", get_engine('Traffic'))
     #max_object_id = max_values['max_object_id'].iloc[0]
     #max_event_id = max_values['max_event_id'].iloc[0]
     row_count = 0
-    with cnxn.get_engine('Traffic').begin() as conn:
+    with get_engine('Traffic').begin() as conn:
     #    for i, space in space_data
         for space in space_data:
             #max_object_id += 1
@@ -103,7 +99,7 @@ def return_space_to_service(update_values: Dict) -> int:
                     AND OBJECTID = :object_id
             """)
     
-    with cnxn.get_engine('Traffic').begin() as conn:
+    with get_engine('Traffic').begin() as conn:
         result = conn.execute(stmt, update_values)
         rows_updated = result.rowcount
     
@@ -147,7 +143,7 @@ def update_space_status(table: str, space_id: str, status: str, last_edited_date
                 {cityworks_field_map[table]} = :cw_asset_id
                 
     """)
-    with cnxn.get_engine('Traffic').begin() as conn:
+    with get_engine('Traffic').begin() as conn:
         result = conn.execute(stmt, {'status':status, 'cw_asset_id':space_id})
         rows_updated = result.rowcount
     
@@ -192,7 +188,7 @@ def get_spaces_from_work_order(work_order: Dict[str, Any]) -> pd.DataFrame:
 
     for qry in query_list:
         try:
-            temp = gpd.read_postgis(qry, cnxn.get_engine('Traffic'), geom_col='geometry', crs='EPSG:8193')
+            temp = gpd.read_postgis(qry, get_engine('Traffic'), geom_col='geometry', crs='EPSG:8193')
             if 'PU_DISVET_ON_ST' in qry:
                 temp['Meter_Type'] = 'ADA'
             match = re.search(r'FROM\s+([^\s]+)', qry, re.IGNORECASE)
@@ -200,7 +196,7 @@ def get_spaces_from_work_order(work_order: Dict[str, Any]) -> pd.DataFrame:
                 table_name = match.group(1)
                 temp['table_name'] = table_name
         except:
-            temp = pd.read_sql(qry, cnxn.get_engine('Traffic'))
+            temp = pd.read_sql(qry, get_engine('Traffic'))
             
         temp.rename(columns={'CWasset_ID':'cwAssetID', 'Space_Status':'Status', 'LZ_Type':'Space_Type', 'Meter_Type':'Space_Type'}, inplace=True)
         if 'Block_Nbr' in temp.columns and 'St_Pre_Dir' in temp.columns and 'St_Name' in temp.columns and 'St_Name_Suf' in temp.columns:
@@ -225,7 +221,7 @@ def cc_terminal_add_asset(work_order: Dict[str, Any]) -> int:
         print('need to raise exception, must have this')
     
     # Get max OBJECTID from SDE
-    df = pd.read_sql("SELECT max(OBJECTID) max_object_id FROM Traffic.data_admin8.PU_REVENUE_CREDITCARDTERMINALS", cnxn.get_engine('Traffic'))
+    df = pd.read_sql("SELECT max(OBJECTID) max_object_id FROM Traffic.data_admin8.PU_REVENUE_CREDITCARDTERMINALS", get_engine('Traffic'))
     if df.shape[0] > 0:
         object_id = df['max_object_id'].iloc[0] + 1
     else:
@@ -240,7 +236,7 @@ def cc_terminal_add_asset(work_order: Dict[str, Any]) -> int:
     else:
         terminal_id = work_order['custom_fields']['Terminal ID']
     
-    with cnxn.get_engine('Traffic').begin() as conn:
+    with get_engine('Traffic').begin() as conn:
         result = conn.execute(text("""
                      INSERT INTO Traffic.data_admin8.PU_REVENUE_CREDITCARDTERMINALS
                         (OBJECTID, DeviceID, Model, SerialNumber, cwAssetID, Brand, TerminalID, UID)
@@ -272,7 +268,7 @@ def cc_terminal_remove_asset(work_order: Dict[str, Any]) -> int:
     if not work_order.get('ActualFinishDate'):
         raise exc.MissingRequiredValueError
     
-    with cnxn.get_engine('Traffic').begin() as conn:
+    with get_engine('Traffic').begin() as conn:
         result = conn.execute(text("""
             UPDATE data_admin8.PU_REVENUE_CREDITCARDTERMINALS 
             SET DateRemoved = :actual_finish_date
@@ -310,7 +306,7 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
         else:
             location_id = -1
     
-    engine = cnxn.get_engine('Traffic')
+    engine = get_engine('Traffic')
     
     # Get active record for info. Will need to close this record.
     qry_active_assignment = text("""
@@ -367,7 +363,6 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
     return {'updated':update_result, 'created':insert_result}
 
 
-#def cc_terminal_pm()
 
 
 def process_work_order_gis_updates(
@@ -389,7 +384,7 @@ def process_work_order_gis_updates(
     Example:
         from db_manager import ConnectionManager
         cnxn = ConnectionManager()
-        engine = cnxn.get_engine('sde')
+        engine = get_engine('sde')
         
         results = process_work_order_gis_updates(engine, {
             'work_order_id': 126191,
