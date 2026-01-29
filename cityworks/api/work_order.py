@@ -2,8 +2,7 @@ from typing import Dict, Any, List, Optional
 from ..client.session import CityworksSession
 from ..client.response import CityworksResponse
 import pandas as pd
-from db_manager import ConnectionManager
-cnxn = ConnectionManager()
+from cityworks.database import get_engine
 
 class WorkOrderAPI:
     """High-level API for work order operations"""
@@ -41,7 +40,7 @@ class WorkOrderAPI:
         :rtype: List[str]
         """
         # Can't find how to use API for this
-        comments = pd.read_sql(f"SELECT comments FROM azteca.WorkOrderComment WHERE WorkOrderSid = {work_order_sid} ORDER BY DATECREATED", cnxn.get_engine('cmms'))
+        comments = pd.read_sql(f"SELECT comments FROM azteca.WorkOrderComment WHERE WorkOrderSid = {work_order_sid} ORDER BY DATECREATED", get_engine('cmms'))
         return comments['comments'].tolist()
     
 
