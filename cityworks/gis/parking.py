@@ -54,6 +54,7 @@ TEMPLATE_WORKFLOWS = {
     1160: "space_out_of_service",
     1161: "space_out_of_service",
     1598: "space_out_of_service", # Hood Install
+    1596: "space_out_of_service", # Sign Install
 
     # Hood/Sign Removal → return to service
     99: "return_space_to_service",
@@ -61,11 +62,15 @@ TEMPLATE_WORKFLOWS = {
     101: "return_space_to_service",
     1162: "return_space_to_service",
     1599: "return_space_to_service", # Hood Removal
+    1597: "return_space_to_service", # Sign Removal
 
     # Credit Card Terminals
     1586: "cc_terminal_move",
     1587: "cc_terminal_add",
     1588: "cc_terminal_remove",
+
+    # Temporary No Parking Sign
+    85: "space_out_of_service_and_return",
 
 }
 
