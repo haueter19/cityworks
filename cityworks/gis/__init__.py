@@ -1,14 +1,49 @@
 """GIS operations and utilities."""
-from .operations import *  # Whatever functions/classes are in operations.py
-from .parking import *  # And any other exports from parking.py
+from .operations import (
+    format_sde_query,
+    get_spaces_out_of_service,
+    sde_query,
+    sde_insert,
+    sde_update,
+    sde_transaction,
+    get_next_id,
+    get_cw_asset_field,
+    get_status_field,
+    get_active_terminal_assignment,
+    CITYWORKS_FIELD_MAP,
+    STATUS_FIELD_MAP,
+)
+from .parking import (
+    add_space_out_of_service,
+    return_space_to_service,
+    update_space_status,
+    get_spaces_from_work_order,
+    cc_terminal_add_asset,
+    cc_terminal_remove_asset,
+    cc_terminal_update_gis,
+)
 
 __all__ = [
-    'add_space_out_of_service',
-    'return_space_to_service',
-    'get_spaces_from_work_order',
-    'cc_terminal_add_asset',
-    'cc_terminal_remove_asset',
-    'cc_terminal_update_gis',
-    'format_sde_query',
-    # Add other exports from operations.py and parking.py as needed
+    # operations — constants
+    "CITYWORKS_FIELD_MAP",
+    "STATUS_FIELD_MAP",
+    # operations — query / CRUD
+    "format_sde_query",
+    "get_spaces_out_of_service",
+    "sde_query",
+    "sde_insert",
+    "sde_update",
+    "sde_transaction",
+    "get_next_id",
+    "get_cw_asset_field",
+    "get_status_field",
+    "get_active_terminal_assignment",
+    # parking — business logic
+    "add_space_out_of_service",
+    "return_space_to_service",
+    "update_space_status",
+    "get_spaces_from_work_order",
+    "cc_terminal_add_asset",
+    "cc_terminal_remove_asset",
+    "cc_terminal_update_gis",
 ]

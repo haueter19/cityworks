@@ -40,7 +40,7 @@ class WorkOrderAPI:
         :rtype: List[str]
         """
         # Can't find how to use API for this
-        comments = pd.read_sql(f"SELECT comments FROM azteca.WorkOrderComment WHERE WorkOrderSid = {work_order_sid} ORDER BY DATECREATED", get_engine('cmms'))
+        comments = pd.read_sql(f"SELECT comments FROM CMMS.azteca.WorkOrderComment WHERE WorkOrderSid = {work_order_sid} ORDER BY DATECREATED", get_engine('cmms'))
         return comments['comments'].tolist()
     
 
