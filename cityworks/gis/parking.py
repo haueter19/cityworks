@@ -5,11 +5,67 @@ This module owns business rules: input validation, field-name mapping
 from work-order dicts to SDE column names, workflow orchestration, etc.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import pandas as pd
 import cityworks.client.exceptions as exc
 from . import operations as ops
 
+
+# ---------------------------------------------------------------------------
+# Asset-type sets
+# ---------------------------------------------------------------------------
+
+SPACE_LAYERS = {"PU_METERS_ON_ST", "PU_LZ_ON_ST", "PU_DISVET_ON_ST", "PU_OFF_ST_SPACES"}
+CC_TERMINAL_LAYERS = {"PU_REVENUE_CREDITCARDTERMINALS"}
+
+# ---------------------------------------------------------------------------
+# Workflow registry
+# ---------------------------------------------------------------------------
+
+# Each workflow is a list of (action_name, set_of_applicable_entity_types).
+# An asset is only processed for actions whose entity-type set it belongs to.
+WORKFLOWS = {
+    "out_of_service": [
+        ("out_of_service", SPACE_LAYERS),
+    ],
+    "return_to_service": [
+        ("return_to_service", SPACE_LAYERS),
+    ],
+    "out_of_service_and_return": [
+        ("out_of_service", SPACE_LAYERS),
+        ("return_to_service", SPACE_LAYERS),
+    ],
+    "cc_terminal_add": [
+        ("add_asset", CC_TERMINAL_LAYERS),
+    ],
+    "cc_terminal_remove": [
+        ("remove_asset", CC_TERMINAL_LAYERS),
+    ],
+    "cc_terminal_move": [
+        ("update_location", CC_TERMINAL_LAYERS),
+    ],
+}
+
+# Map parent work-order template IDs → workflow name
+TEMPLATE_WORKFLOWS = {
+    # Hood/Sign Space → out of service
+    214: "out_of_service",
+    682: "out_of_service",
+    1160: "out_of_service",
+    1161: "out_of_service",
+    # Hood/Sign Removal → return to service
+    99: "return_to_service",
+    100: "return_to_service",
+    101: "return_to_service",
+    1162: "return_to_service",
+}
+
+# Map parent work-order description → workflow name
+DESCRIPTION_WORKFLOWS = {
+    "Hood/Sign Space": "out_of_service",
+    "Hood/Sign Removal": "return_to_service",
+    "No Parking Sign Check": "out_of_service_and_return",
+}
 
 # ---------------------------------------------------------------------------
 # Location mapping for CC terminal moves
@@ -23,6 +79,76 @@ LOCATION_MAP = {
     "SLS": 18,
     "WS": 19,
 }
+
+
+# ---------------------------------------------------------------------------
+# Workflow dispatch
+# ---------------------------------------------------------------------------
+
+def get_workflow(
+    template_id: Optional[int] = None,
+    description: Optional[str] = None,
+) -> List[Tuple[str, set]]:
+    """Return the workflow steps for a parent work order.
+
+    Look up by template ID (preferred) or description string.
+    Returns an empty list if no workflow is registered.
+
+    Args:
+        template_id: Parent work order's ``WoTemplateId``.
+        description: Parent work order's ``Description``.
+
+    Returns:
+        List of ``(action_name, applicable_entity_types)`` tuples.
+
+    Example::
+
+        steps = get_workflow(template_id=214)
+        # [("out_of_service", {"PU_METERS_ON_ST", ...})]
+    """
+    name = None
+    if template_id is not None:
+        name = TEMPLATE_WORKFLOWS.get(int(template_id))
+    if name is None and description is not None:
+        name = DESCRIPTION_WORKFLOWS.get(description)
+    return list(WORKFLOWS.get(name, [])) if name else []
+
+
+def get_workflow_name(
+    template_id: Optional[int] = None,
+    description: Optional[str] = None,
+) -> Optional[str]:
+    """Return the workflow name (e.g. ``'out_of_service'``) or None."""
+    if template_id is not None:
+        name = TEMPLATE_WORKFLOWS.get(int(template_id))
+        if name:
+            return name
+    if description is not None:
+        return DESCRIPTION_WORKFLOWS.get(description)
+    return None
+
+
+def get_asset_actions(
+    entity_type: str,
+    template_id: Optional[int] = None,
+    description: Optional[str] = None,
+) -> List[str]:
+    """Return which actions apply to a specific asset within a workflow.
+
+    Args:
+        entity_type: The asset's ``EntityType`` (e.g. ``'PU_METERS_ON_ST'``).
+        template_id: Parent work order's ``WoTemplateId``.
+        description: Parent work order's ``Description``.
+
+    Returns:
+        List of action names (e.g. ``['out_of_service']``).
+        Empty list if the entity type doesn't participate in the workflow.
+    """
+    return [
+        action
+        for action, asset_types in get_workflow(template_id, description)
+        if entity_type in asset_types
+    ]
 
 
 # ---------------------------------------------------------------------------
