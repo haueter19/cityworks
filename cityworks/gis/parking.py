@@ -25,15 +25,15 @@ CC_TERMINAL_LAYERS = {"PU_REVENUE_CREDITCARDTERMINALS"}
 # Each workflow is a list of (action_name, set_of_applicable_entity_types).
 # An asset is only processed for actions whose entity-type set it belongs to.
 WORKFLOWS = {
-    "out_of_service": [
-        ("out_of_service", SPACE_LAYERS),
+    "space_out_of_service": [
+        ("space_out_of_service", SPACE_LAYERS),
     ],
     "return_to_service": [
-        ("return_to_service", SPACE_LAYERS),
+        ("return_space_to_service", SPACE_LAYERS),
     ],
-    "out_of_service_and_return": [
-        ("out_of_service", SPACE_LAYERS),
-        ("return_to_service", SPACE_LAYERS),
+    "space_out_of_service_and_return": [
+        ("space_out_of_service", SPACE_LAYERS),
+        ("return_space_to_service", SPACE_LAYERS),
     ],
     "cc_terminal_add": [
         ("add_asset", CC_TERMINAL_LAYERS),
@@ -49,22 +49,33 @@ WORKFLOWS = {
 # Map parent work-order template IDs → workflow name
 TEMPLATE_WORKFLOWS = {
     # Hood/Sign Space → out of service
-    214: "out_of_service",
-    682: "out_of_service",
-    1160: "out_of_service",
-    1161: "out_of_service",
+    214: "space_out_of_service",
+    682: "space_out_of_service",
+    1160: "space_out_of_service",
+    1161: "space_out_of_service",
+    1598: "space_out_of_service", # Hood Install
+
     # Hood/Sign Removal → return to service
-    99: "return_to_service",
-    100: "return_to_service",
-    101: "return_to_service",
-    1162: "return_to_service",
+    99: "return_space_to_service",
+    100: "return_space_to_service",
+    101: "return_space_to_service",
+    1162: "return_space_to_service",
+    1599: "return_space_to_service", # Hood Removal
+
+    # Credit Card Terminals
+    1586: "cc_terminal_move",
+    1587: "cc_terminal_add",
+    1588: "cc_terminal_remove",
+
 }
 
 # Map parent work-order description → workflow name
 DESCRIPTION_WORKFLOWS = {
-    "Hood/Sign Space": "out_of_service",
-    "Hood/Sign Removal": "return_to_service",
-    "No Parking Sign Check": "out_of_service_and_return",
+    "Hood/Sign Space": "space_out_of_service",
+    "Hood Install": "space_out_of_service",
+    "Hood/Sign Removal": "return_space_to_service",
+    "Hood Removal": "return_space_to_service",
+    "No Parking Sign Check": "space_out_of_service_and_return",
 }
 
 # ---------------------------------------------------------------------------
