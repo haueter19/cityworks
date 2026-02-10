@@ -165,12 +165,12 @@ def sde_query(
         try:
             return gpd.read_postgis(
                 full_query, engine_or_conn,
-                geom_col="geometry", crs=CRS, params=params or {},
+                geom_col="geometry", crs=CRS, params=params if params else None,
             )
         except Exception:
             pass  # fall through to plain DataFrame
 
-    return pd.read_sql(full_query, engine_or_conn, params=params or {})
+    return pd.read_sql(full_query, engine_or_conn, params=params if params else None)
 
 
 def get_spaces_out_of_service(spaces: List[str]) -> gpd.GeoDataFrame:
