@@ -39,7 +39,7 @@ def add_space_out_of_service(space_data: List[Dict]) -> int:
             work_order_id=126191
         )
     """
-        
+    
     stmt = text("""
         INSERT INTO data_admin8.PU_SPACESOUTOFSERVICE
         (OBJECTID, Event_ID, Date_Out, Space_Type, created_user, created_date, last_edited_user, last_edited_date, Note, SpaceNumber, Shape, RevenueCollected, RemovalMethod, 
@@ -151,9 +151,14 @@ def update_space_status(table: str, space_id: str, status: str, last_edited_date
 
 
 def get_spaces_from_work_order(work_order: Dict[str, Any]) -> pd.DataFrame:
-    """Uses the entities from a work order to find the space name in various tables"""
+    """Uses the entities from a work order to find the space record in the SDE"""
+    # Must have a key called `assets` which is a list of dicts with keys `EntityType` and `EntityUid`
     if 'assets' not in work_order.keys():
         return pd.DataFrame()
+    if 'assets' in work_order.keys() and not isinstance(work_order['assets'], list):
+        raise ValueError("Expected 'assets' to be a list of dictionaries")
+    if not all('EntityType', 'EntityUid') in work_order['assets'][0].keys():
+        raise ValueError("Expected each asset to have 'EntityType' and 'EntityUid' keys")
     
     # Establish dictionary to hold the entity type as the key and a list of assets by entityuid which is the CW asset ID    
     entity_type_dict = {}
@@ -169,7 +174,7 @@ def get_spaces_from_work_order(work_order: Dict[str, Any]) -> pd.DataFrame:
     # Establish list to store queries. Because a work order may have a mixture of space types/entity types, we need to create a query for each table associated with each entity type
     query_list = []
 
-    # 
+    # Iterate entity_type_dict to build a query for each entity type and its associated list of entityuids
     for entity_type, entity_list in entity_type_dict.items():
         # Build the base query for the entity type
         base = format_sde_query(entity_type)
@@ -200,7 +205,7 @@ def get_spaces_from_work_order(work_order: Dict[str, Any]) -> pd.DataFrame:
             
         temp.rename(columns={'CWasset_ID':'cwAssetID', 'Space_Status':'Status', 'LZ_Type':'Space_Type', 'Meter_Type':'Space_Type'}, inplace=True)
         if 'Block_Nbr' in temp.columns and 'St_Pre_Dir' in temp.columns and 'St_Name' in temp.columns and 'St_Name_Suf' in temp.columns:
-            temp.fillna({'St_Pre_Dir':'' , 'St_Name_Suf':''}, inplace=True)
+            temp.fillna({'St_Pre_Dir':'' , 'St_Name_Suf':'', 'St_Name':'', 'Block_Nbr':0}, inplace=True)
             temp['Address'] = (temp['Block_Nbr'].astype(str) + ' '+ temp['St_Pre_Dir']+ ' ' + temp['St_Name'] + ' ' + temp['St_Name_Suf']).str.replace('  ',' ')
         else:
             if 'Facility_Name_Full' in temp.columns:
