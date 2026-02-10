@@ -14,11 +14,11 @@ import cityworks.client.exceptions as exc
 
 def add_space_out_of_service(space_data: List[Dict]) -> int:
     """
-    Mark a parking space as out of service.
+    Mark a parking space as out of service by inserting a record into the PU_SPACESOUTOFSERVICE table in the SDE.
     
     Args:
-        engine: SQLAlchemy engine from ConnectionManager
-        space_id: Unique identifier for the parking space
+        space_data: List of dictionaries containing space information with the following keys:
+        space_number: Identifier for the parking space
         reason: Reason for taking space out of service
         start_date: Date when space goes out of service
         end_date: Optional date when space will return to service
@@ -26,18 +26,9 @@ def add_space_out_of_service(space_data: List[Dict]) -> int:
         work_order_id: Related work order ID if applicable
         
     Returns:
-        OBJECTID of the new record
+        rowcount of inserted record (should be 1 if successful)
         
-    Example:
-        engine = get_engine('sde')
-        
-        oid = add_space_out_of_service(
-            engine,
-            space_id='SP-123',
-            reason='Construction',
-            start_date=datetime.now(),
-            work_order_id=126191
-        )
+    
     """
     
     stmt = text("""
@@ -370,111 +361,3 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
 
 
 
-def process_work_order_gis_updates(
-    engine: Engine,
-    work_order_data: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    Process all GIS updates for a work order.
-    
-    This orchestrates multiple operations based on the work order type.
-    
-    Args:
-        engine: SQLAlchemy engine from ConnectionManager
-        work_order_data: Work order details including entity type and changes
-        
-    Returns:
-        Dictionary with results of each operation
-        
-    Example:
-        from db_manager import ConnectionManager
-        cnxn = ConnectionManager()
-        engine = get_engine('sde')
-        
-        results = process_work_order_gis_updates(engine, {
-            'work_order_id': 126191,
-            'entity_type': 'PU_METERS_ON_ST',
-            'entity_id': 'MTR-2395',
-            'operation': 'UPDATE',
-            'updates': {'METERSTATUS': 'ACTIVE'}
-        })
-    """
-    results = {
-        'work_order_id': work_order_data.get('work_order_id'),
-        'success': False,
-        'operations': []
-    }
-    
-    try:
-        entity_type = work_order_data['entity_type']
-        entity_id = work_order_data['entity_id']
-        operation = work_order_data.get('operation', 'UPDATE')
-        
-        if operation == 'UPDATE':
-            rows_updated = update_fields(
-                engine,
-                entity_type,
-                entity_id,
-                work_order_data['updates']
-            )
-            results['operations'].append({
-                'type': 'UPDATE',
-                'table': entity_type,
-                'id': entity_id,
-                'rows_affected': rows_updated,
-                'success': rows_updated > 0
-            })
-        
-        elif operation == 'UPDATE_STATUS':
-            rows_updated = update_meter_status(
-                engine,
-                meter_id=entity_id,
-                status=work_order_data['status'],
-                notes=work_order_data.get('notes')
-            )
-            results['operations'].append({
-                'type': 'UPDATE_STATUS',
-                'table': entity_type,
-                'id': entity_id,
-                'rows_affected': rows_updated,
-                'success': rows_updated > 0
-            })
-        
-        elif operation == 'OUT_OF_SERVICE':
-            oid = add_space_out_of_service(
-                engine,
-                space_id=entity_id,
-                reason=work_order_data.get('reason', 'Work Order'),
-                start_date=work_order_data.get('start_date', datetime.now()),
-                work_order_id=work_order_data.get('work_order_id')
-            )
-            results['operations'].append({
-                'type': 'OUT_OF_SERVICE',
-                'table': 'PU_SPACESOUTOFSERVICE',
-                'oid': oid,
-                'success': oid is not None
-            })
-        
-        elif operation == 'RETURN_TO_SERVICE':
-            rows_updated = return_space_to_service(
-                engine,
-                space_id=entity_id,
-                end_date=work_order_data.get('end_date'),
-                notes=work_order_data.get('notes')
-            )
-            results['operations'].append({
-                'type': 'RETURN_TO_SERVICE',
-                'table': 'PU_SPACESOUTOFSERVICE',
-                'rows_affected': rows_updated,
-                'success': rows_updated > 0
-            })
-        
-        results['success'] = all(
-            op.get('success', False) for op in results['operations']
-        )
-        
-    except Exception as e:
-        results['error'] = str(e)
-        results['success'] = False
-    
-    return results
