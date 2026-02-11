@@ -40,7 +40,8 @@ def build_connection_string(
     """
     server_from_database = {
         'Traffic':'arcsde',
-        'cmms':'cmms',
+        'cmms':'pubworksdbprd',
+        'CMMS':'pubworksdbprd',
         'PUReporting':'pubworksdbprd'
     }
     if not server:
