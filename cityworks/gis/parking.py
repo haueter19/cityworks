@@ -169,7 +169,87 @@ def get_asset_actions(
 
 
 # ---------------------------------------------------------------------------
-# Asset validation
+# Work-order enrichment & validation pipeline
+# ---------------------------------------------------------------------------
+
+def prepare_work_order(response: Dict[str, Any]) -> Dict[str, Any]:
+    """Enrich a raw work-order response with workflow, SDE data, and validation.
+
+    This is the single entry-point for turning the output of
+    :func:`~cityworks.queries.work_orders.get_work_order_details_json` into a
+    fully-validated payload ready for the front end.
+
+    Pipeline steps:
+
+    1. Resolve the workflow name from the parent work order.
+    2. Enrich space-layer assets with SDE data (Status, SpaceName, etc.).
+    3. Compute per-asset actions from the workflow registry.
+    4. Validate assets against PU_SPACESOUTOFSERVICE records.
+
+    Args:
+        response: Dict returned by ``get_work_order_details_json()``.
+            Must contain ``'work_order'``, ``'parent_work_order'``, and
+            ``'assets'`` keys.
+
+    Returns:
+        The same *response* dict, mutated in place, with:
+
+        * ``response['workflow_name']`` – resolved workflow name or *None*
+        * Each asset in ``response['assets']`` gains ``actions``,
+          ``validation_status``, ``validation_message``, ``object_id``,
+          ``event_id``, ``recent_space_out_of_service``, plus SDE fields
+          (``SpaceName``, ``Status``, ``Space_Type``, ``Address``) when
+          applicable.
+    """
+    parent_wo = response.get("parent_work_order", {}) or {}
+    template_id = parent_wo.get("WoTemplateId")
+    description = parent_wo.get("Description")
+    parent_actual_finish_date = parent_wo.get("ActualFinishDate")
+
+    tid = int(template_id) if template_id else None
+
+    # 1. Resolve workflow
+    workflow_name = get_workflow_name(template_id=tid, description=description)
+    response["workflow_name"] = workflow_name
+
+    # 2. Enrich space assets with SDE data
+    has_spaces = any(
+        a["EntityType"] in SPACE_LAYERS for a in response["assets"]
+    )
+    if has_spaces:
+        spaces = get_spaces_from_work_order(response)
+        spaces.fillna(
+            {"Status": "", "SpaceName": "", "Space_Type": ""}, inplace=True
+        )
+        if spaces.shape[0] > 0:
+            for asset in response["assets"]:
+                match = spaces[spaces["cwAssetID"] == asset["EntityUid"]]
+                if match.shape[0] > 0:
+                    asset.update(
+                        match[["Status", "SpaceName", "Space_Type", "Address"]]
+                        .to_dict(orient="records")[0]
+                    )
+
+    # 3. Compute per-asset actions
+    for asset in response["assets"]:
+        asset["actions"] = get_asset_actions(
+            entity_type=asset["EntityType"],
+            template_id=tid,
+            description=description,
+        )
+
+    # 4. Validate against OOS records
+    response["assets"] = validate_space_assets(
+        assets=response["assets"],
+        parent_actual_finish_date=parent_actual_finish_date,
+        workflow_name=workflow_name,
+    )
+
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Asset validation (internal to prepare_work_order pipeline)
 # ---------------------------------------------------------------------------
 
 def validate_space_assets(
