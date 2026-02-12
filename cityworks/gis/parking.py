@@ -20,6 +20,17 @@ SPACE_LAYERS = {"PU_METERS_ON_ST", "PU_LZ_ON_ST", "PU_DISVET_ON_ST", "PU_OFF_ST_
 CC_TERMINAL_LAYERS = {"PU_REVENUE_CREDITCARDTERMINALS"}
 
 # ---------------------------------------------------------------------------
+# Service-request custom-field names for sign date extraction
+# ---------------------------------------------------------------------------
+# These are the CustFieldName values from CMMS.azteca.ReqCustField that hold
+# the sign start and end datetimes for "No Parking Sign Check" workflows.
+# Adjust if the actual field names in Cityworks differ.
+SIGN_DATE_FIELDS = {
+    "start": "Sign Start Date",
+    "end": "Sign End Date",
+}
+
+# ---------------------------------------------------------------------------
 # Workflow registry
 # ---------------------------------------------------------------------------
 
@@ -238,11 +249,21 @@ def prepare_work_order(response: Dict[str, Any]) -> Dict[str, Any]:
             description=description,
         )
 
-    # 4. Validate against OOS records
+    # 4. Extract sign dates from service request for sign workflows
+    sign_start_date = None
+    sign_end_date = None
+    if workflow_name == "space_out_of_service_and_return":
+        sr = response.get("service_request", {}) or {}
+        sign_start_date = sr.get(SIGN_DATE_FIELDS["start"])
+        sign_end_date = sr.get(SIGN_DATE_FIELDS["end"])
+
+    # 5. Validate against OOS records
     response["assets"] = validate_space_assets(
         assets=response["assets"],
         parent_actual_finish_date=parent_actual_finish_date,
         workflow_name=workflow_name,
+        sign_start_date=sign_start_date,
+        sign_end_date=sign_end_date,
     )
 
     return response
@@ -256,12 +277,19 @@ def validate_space_assets(
     assets: List[Dict[str, Any]],
     parent_actual_finish_date: Optional[str],
     workflow_name: Optional[str],
+    sign_start_date: Optional[str] = None,
+    sign_end_date: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Validate work-order assets against PU_SPACESOUTOFSERVICE records.
 
     Enriches each asset dict with validation status, OOS record references,
     and a flag indicating whether the parent finish date is more recent than
     the latest OOS Date_Out for that space.
+
+    For ``space_out_of_service_and_return`` workflows (temporary sign), the
+    sign dates from the service request are used instead of the parent finish
+    date.  An OOS record is checked for matching ``Date_Out`` and
+    ``Date_Returned`` on the same dates as the sign start/end.
 
     Args:
         assets: Asset dicts from the work-order response.  Each must have at
@@ -272,6 +300,10 @@ def validate_space_assets(
         parent_actual_finish_date: ISO-format ``ActualFinishDate`` of the
             parent work order, or *None*.
         workflow_name: Resolved workflow name, or *None*.
+        sign_start_date: ISO-format sign start datetime from the service
+            request, or *None*.  Used for ``space_out_of_service_and_return``.
+        sign_end_date: ISO-format sign end datetime from the service
+            request, or *None*.  Used for ``space_out_of_service_and_return``.
 
     Returns:
         The same list (mutated in place and sorted by ``SpaceName``), with
@@ -283,6 +315,7 @@ def validate_space_assets(
         * ``object_id`` – OOS ``OBJECTID`` for return-to-service (or *None*)
         * ``event_id`` – OOS ``Event_ID`` for return-to-service (or *None*)
         * ``recent_space_out_of_service`` – ``'true'`` / ``'false'``
+        * ``sign_start_date`` / ``sign_end_date`` – (sign workflows only)
     """
     # Parse the parent finish date once
     finish_dt = None
@@ -293,6 +326,10 @@ def validate_space_assets(
             )
         except (ValueError, AttributeError):
             pass
+
+    # Parse sign dates once
+    sign_start_dt = _parse_datetime(sign_start_date)
+    sign_end_dt = _parse_datetime(sign_end_date)
 
     # Identify space assets and collect their space names for bulk lookup
     space_names: List[str] = []
@@ -342,29 +379,43 @@ def validate_space_assets(
             )
             continue
 
+        # Determine the reference date for recent_space_out_of_service.
+        # For sign workflows, use sign_start_date; for hoods, use parent finish.
+        ref_dt = sign_start_dt if sign_start_dt is not None else finish_dt
+
         # Compute recent_space_out_of_service
-        if finish_dt is not None and space_name:
+        if ref_dt is not None and space_name:
             max_oos = max_date_out_by_space.get(space_name)
             if max_oos is not None:
                 # Ensure timezone-aware comparison
                 if max_oos.tzinfo is None:
                     max_oos = max_oos.replace(tzinfo=timezone.utc)
-                cmp_finish = finish_dt if finish_dt.tzinfo else finish_dt.replace(
+                cmp_ref = ref_dt if ref_dt.tzinfo else ref_dt.replace(
                     tzinfo=timezone.utc
                 )
                 asset["recent_space_out_of_service"] = (
-                    "true" if cmp_finish > max_oos else "false"
+                    "true" if cmp_ref > max_oos else "false"
                 )
             else:
-                # No OOS records at all → parent is most recent
+                # No OOS records at all → this is the most recent
                 asset["recent_space_out_of_service"] = "true"
 
         # Per-action validation
-        if "space_out_of_service" in actions:
-            _validate_out_of_service(asset, space_name, existing_records, finish_dt)
+        has_oos = "space_out_of_service" in actions
+        has_rts = "return_space_to_service" in actions
 
-        if "return_space_to_service" in actions:
-            _validate_return_to_service(asset, space_name, existing_records, finish_dt)
+        if has_oos and has_rts and sign_start_dt is not None:
+            # Combined sign workflow — validate as a single atomic operation
+            _validate_sign_oos_and_return(
+                asset, space_name, existing_records,
+                sign_start_dt, sign_end_dt,
+            )
+        else:
+            # Independent validation per action
+            if has_oos:
+                _validate_out_of_service(asset, space_name, existing_records, finish_dt)
+            if has_rts:
+                _validate_return_to_service(asset, space_name, existing_records, finish_dt)
 
     # Sort by SpaceName
     assets.sort(key=lambda a: a.get("SpaceName") or "")
@@ -386,27 +437,13 @@ def _validate_out_of_service(
     finish_date_only = finish_dt.date()
 
     for record in records:
-        date_out = record.get("Date_Out")
-        if date_out is None:
-            continue
-        try:
-            if isinstance(date_out, str):
-                record_date = datetime.fromisoformat(
-                    date_out.replace("Z", "+00:00")
-                ).date()
-            elif hasattr(date_out, "date"):
-                record_date = date_out.date()
-            else:
-                continue
-
-            if record_date == finish_date_only:
-                asset["validation_status"] = "already_processed"
-                asset["validation_message"] = (
-                    f"Record already exists for {finish_date_only}"
-                )
-                return
-        except Exception:
-            continue
+        record_date = _to_date(record.get("Date_Out"))
+        if record_date is not None and record_date == finish_date_only:
+            asset["validation_status"] = "already_processed"
+            asset["validation_message"] = (
+                f"Record already exists for {finish_date_only}"
+            )
+            return
 
 
 def _validate_return_to_service(
@@ -453,6 +490,101 @@ def _validate_return_to_service(
         asset["validation_message"] = (
             "No open out-of-service record found for this space"
         )
+
+
+def _validate_sign_oos_and_return(
+    asset: Dict[str, Any],
+    space_name: Optional[str],
+    existing_records: Dict[str, List[dict]],
+    sign_start_dt: datetime,
+    sign_end_dt: Optional[datetime],
+) -> None:
+    """Validate a combined sign out-of-service-and-return against OOS records.
+
+    For temporary No Parking Sign workflows the OOS record is created in a
+    single operation with both ``Date_Out`` (sign start) and ``Date_Returned``
+    (sign end).  Validation checks whether such a record already exists.
+
+    If the record is found: ``already_processed``.
+    If not found: ``ready``, and the sign dates are stored on the asset so
+    the processing endpoint can use them.
+    """
+    if not space_name:
+        return
+
+    records = existing_records.get(space_name, [])
+    start_date_only = sign_start_dt.date()
+    end_date_only = sign_end_dt.date() if sign_end_dt else None
+
+    for record in records:
+        date_out = record.get("Date_Out")
+        if date_out is None:
+            continue
+
+        # Compare Date_Out against sign start date
+        record_date_out = _to_date(date_out)
+        if record_date_out is None or record_date_out != start_date_only:
+            continue
+
+        # Date_Out matches the sign start.  Now check Date_Returned.
+        date_returned = record.get("Date_Returned")
+
+        if end_date_only is not None:
+            # We expect a matching Date_Returned
+            if date_returned is None or date_returned != date_returned:
+                # NULL or NaN — not a completed sign record
+                continue
+            record_date_returned = _to_date(date_returned)
+            if record_date_returned is None or record_date_returned != end_date_only:
+                continue
+
+            # Both dates match
+            asset["validation_status"] = "already_processed"
+            asset["validation_message"] = (
+                f"OOS record already exists with Date_Out={start_date_only} "
+                f"and Date_Returned={end_date_only}"
+            )
+            return
+        else:
+            # No sign end date — a Date_Out match alone is sufficient
+            asset["validation_status"] = "already_processed"
+            asset["validation_message"] = (
+                f"OOS record already exists with Date_Out={start_date_only}"
+            )
+            return
+
+    # No matching record found — ready to create
+    asset["sign_start_date"] = sign_start_dt.isoformat()
+    if sign_end_dt:
+        asset["sign_end_date"] = sign_end_dt.isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Date parsing helpers
+# ---------------------------------------------------------------------------
+
+def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO-format date/datetime string, returning *None* on failure."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _to_date(value):
+    """Coerce a date-like value (str, datetime, Timestamp) to a date, or None."""
+    if value is None:
+        return None
+    try:
+        if isinstance(value, str):
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+        if hasattr(value, "date"):
+            return value.date()
+    except Exception:
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
