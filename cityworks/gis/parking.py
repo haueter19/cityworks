@@ -6,6 +6,7 @@ from work-order dicts to SDE column names, workflow orchestration, etc.
 """
 
 from typing import Optional, Dict, Any, List, Tuple
+from datetime import datetime, timezone
 import pandas as pd
 import cityworks.client.exceptions as exc
 from . import operations as ops
@@ -165,6 +166,213 @@ def get_asset_actions(
         for action, asset_types in get_workflow(template_id, description)
         if entity_type in asset_types
     ]
+
+
+# ---------------------------------------------------------------------------
+# Asset validation
+# ---------------------------------------------------------------------------
+
+def validate_space_assets(
+    assets: List[Dict[str, Any]],
+    parent_actual_finish_date: Optional[str],
+    workflow_name: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Validate work-order assets against PU_SPACESOUTOFSERVICE records.
+
+    Enriches each asset dict with validation status, OOS record references,
+    and a flag indicating whether the parent finish date is more recent than
+    the latest OOS Date_Out for that space.
+
+    Args:
+        assets: Asset dicts from the work-order response.  Each must have at
+            least ``EntityType``, ``EntityUid``, ``EntitySid``.  Space-layer
+            assets should also have ``SpaceName``, ``Space_Type``, ``Address``,
+            ``Status``, ``X``, ``Y``.  Every asset must already carry an
+            ``actions`` key (list of action name strings).
+        parent_actual_finish_date: ISO-format ``ActualFinishDate`` of the
+            parent work order, or *None*.
+        workflow_name: Resolved workflow name, or *None*.
+
+    Returns:
+        The same list (mutated in place and sorted by ``SpaceName``), with
+        each asset gaining:
+
+        * ``validation_status`` – ``'ready'``, ``'already_processed'``,
+          ``'manual_review'``, or ``'error'``
+        * ``validation_message`` – human-readable note (or *None*)
+        * ``object_id`` – OOS ``OBJECTID`` for return-to-service (or *None*)
+        * ``event_id`` – OOS ``Event_ID`` for return-to-service (or *None*)
+        * ``recent_space_out_of_service`` – ``'true'`` / ``'false'``
+    """
+    # Parse the parent finish date once
+    finish_dt = None
+    if parent_actual_finish_date:
+        try:
+            finish_dt = datetime.fromisoformat(
+                parent_actual_finish_date.replace("Z", "+00:00")
+            )
+        except (ValueError, AttributeError):
+            pass
+
+    # Identify space assets and collect their space names for bulk lookup
+    space_names: List[str] = []
+    for asset in assets:
+        if asset["EntityType"] in SPACE_LAYERS and asset.get("SpaceName"):
+            space_names.append(asset["SpaceName"])
+
+    # Bulk-fetch OOS records
+    existing_records: Dict[str, List[dict]] = {}
+    max_date_out_by_space: Dict[str, datetime] = {}
+
+    if space_names:
+        try:
+            oos_data = ops.get_spaces_out_of_service(space_names)
+            if oos_data is not None and len(oos_data) > 0:
+                max_date_out_by_space = (
+                    oos_data.groupby("SpaceNumber")["Date_Out"].max().to_dict()
+                )
+                for _, row in oos_data.iterrows():
+                    space_num = row.get("SpaceNumber")
+                    if space_num not in existing_records:
+                        existing_records[space_num] = []
+                    existing_records[space_num].append(row.to_dict())
+        except Exception as e:
+            print(f"Error fetching out-of-service records: {e}")
+
+    # Validate each asset
+    for asset in assets:
+        entity_type = asset.get("EntityType")
+        space_name = asset.get("SpaceName")
+        actions = asset.get("actions", [])
+
+        # Defaults
+        asset["validation_status"] = "ready"
+        asset["validation_message"] = None
+        asset["object_id"] = None
+        asset["event_id"] = None
+        asset["recent_space_out_of_service"] = "false"
+
+        # Non-space assets or assets with no actions → manual review
+        if entity_type not in SPACE_LAYERS or not actions:
+            asset["validation_status"] = "manual_review"
+            asset["validation_message"] = (
+                f"Non-space asset type ({entity_type}) requires manual review"
+                if entity_type not in SPACE_LAYERS
+                else "No automated actions for this asset"
+            )
+            continue
+
+        # Compute recent_space_out_of_service
+        if finish_dt is not None and space_name:
+            max_oos = max_date_out_by_space.get(space_name)
+            if max_oos is not None:
+                # Ensure timezone-aware comparison
+                if max_oos.tzinfo is None:
+                    max_oos = max_oos.replace(tzinfo=timezone.utc)
+                cmp_finish = finish_dt if finish_dt.tzinfo else finish_dt.replace(
+                    tzinfo=timezone.utc
+                )
+                asset["recent_space_out_of_service"] = (
+                    "true" if cmp_finish > max_oos else "false"
+                )
+            else:
+                # No OOS records at all → parent is most recent
+                asset["recent_space_out_of_service"] = "true"
+
+        # Per-action validation
+        if "space_out_of_service" in actions:
+            _validate_out_of_service(asset, space_name, existing_records, finish_dt)
+
+        if "return_space_to_service" in actions:
+            _validate_return_to_service(asset, space_name, existing_records, finish_dt)
+
+    # Sort by SpaceName
+    assets.sort(key=lambda a: a.get("SpaceName") or "")
+
+    return assets
+
+
+def _validate_out_of_service(
+    asset: Dict[str, Any],
+    space_name: Optional[str],
+    existing_records: Dict[str, List[dict]],
+    finish_dt: Optional[datetime],
+) -> None:
+    """Check if an OOS record already exists for the parent finish date."""
+    if not space_name or finish_dt is None:
+        return
+
+    records = existing_records.get(space_name, [])
+    finish_date_only = finish_dt.date()
+
+    for record in records:
+        date_out = record.get("Date_Out")
+        if date_out is None:
+            continue
+        try:
+            if isinstance(date_out, str):
+                record_date = datetime.fromisoformat(
+                    date_out.replace("Z", "+00:00")
+                ).date()
+            elif hasattr(date_out, "date"):
+                record_date = date_out.date()
+            else:
+                continue
+
+            if record_date == finish_date_only:
+                asset["validation_status"] = "already_processed"
+                asset["validation_message"] = (
+                    f"Record already exists for {finish_date_only}"
+                )
+                return
+        except Exception:
+            continue
+
+
+def _validate_return_to_service(
+    asset: Dict[str, Any],
+    space_name: Optional[str],
+    existing_records: Dict[str, List[dict]],
+    finish_dt: Optional[datetime],
+) -> None:
+    """Find an open OOS record (Date_Returned IS NULL) to close."""
+    if not space_name:
+        return
+
+    records = existing_records.get(space_name, [])
+    has_open_record = False
+
+    for record in records:
+        date_returned = record.get("Date_Returned")
+        # Check for NULL/NaN Date_Returned
+        if date_returned is not None and date_returned == date_returned:
+            continue
+
+        # Found an open record — verify its Date_Out is before the parent finish
+        date_out = record.get("Date_Out")
+        if finish_dt is not None and date_out is not None:
+            if hasattr(date_out, "tzinfo") and date_out.tzinfo is None:
+                date_out = date_out.replace(tzinfo=timezone.utc)
+            cmp_finish = finish_dt if finish_dt.tzinfo else finish_dt.replace(
+                tzinfo=timezone.utc
+            )
+            if date_out >= cmp_finish:
+                continue
+
+        has_open_record = True
+        asset["object_id"] = record.get("OBJECTID")
+        asset["event_id"] = record.get("Event_ID")
+        asset["validation_message"] = (
+            f"Found OOS record (OBJECTID={record.get('OBJECTID')}, "
+            f"Event_ID={record.get('Event_ID')}) with no close date"
+        )
+        break
+
+    if not has_open_record:
+        asset["validation_status"] = "already_processed"
+        asset["validation_message"] = (
+            "No open out-of-service record found for this space"
+        )
 
 
 # ---------------------------------------------------------------------------
