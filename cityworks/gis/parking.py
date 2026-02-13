@@ -539,12 +539,17 @@ def _check_sign_record_exists(
 # ---------------------------------------------------------------------------
 
 def _parse_datetime(value) -> Optional[datetime]:
-    """Parse an ISO-format date/datetime string, returning *None* on failure."""
+    """Parse an ISO-format or M/D/YYYY h:MM:SS AM/PM date/datetime string, returning *None* on failure."""
     if not value:
         return None
     try:
         if isinstance(value, str):
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            # Try ISO format first
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                # Fall back to M/D/YYYY h:MM:SS AM/PM format
+                return datetime.strptime(value, '%m/%d/%Y %I:%M:%S %p')
         if hasattr(value, "tzinfo"):
             return value  # already a datetime
     except (ValueError, AttributeError):
