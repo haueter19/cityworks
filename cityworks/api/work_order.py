@@ -58,6 +58,20 @@ class WorkOrderAPI:
         return response.value
     
 
+    def add_entities(self, work_order_sid: int, entity_type: str, entity_uids: List[str]) -> Dict[str, Any]:
+        """Add assets/entities to a work order"""
+        params = {
+            'WorkOrderSid': work_order_sid,
+            'WorkOrderId': work_order_sid,
+            'EntityType': entity_type,
+            'EntityUids': entity_uids
+        }
+        response = self.session.get('Ams', 'WorkOrder', 'AddEntities', params)
+        response.raise_for_status()
+        return response.value
+    
+    
+
     def get_custom_fields(self, work_order_sid: int) -> Dict[str, Any]:
         """Get custom fields associated with a work order. Return as dictionary where the CustFieldName is the key and CustFieldValue is the value."""
         response = self.session.get('Ams', 'WorkOrder', 'CustomFieldsByWorkOrderSids', {'WorkOrderSids': [work_order_sid]})
@@ -81,21 +95,35 @@ class WorkOrderAPI:
             'WOTemplateId': template_id,
             **kwargs
         }
-
-        # Debug: see what's actually being sent
-        #import json
-        #print(f"JSON being sent: {json.dumps(params)}")
         
-        response = self.session.get('Ams', 'WorkOrder', 'CreateFromParent', params)
-
-        # Debug: see what came back
-        #print(f"Response URL: {response._response.url}")
-        #print(f"Response status: {response._response.status_code}")
-        
+        response = self.session.get('Ams', 'WorkOrder', 'CreateFromParent', params)        
         response.raise_for_status()
         return response.value[0] if response.value else {}
     
 
+    def create_from_service_request(self, service_request_id: int, entity_type: str, template_id: str, **kwargs) -> Dict[str, Any]:
+        """
+        Create work order from service request.
+        
+        Args:
+            service_request_id: Service request ID
+            entity_type: Entity type (e.g., 'Asset', 'Location')
+            template_id: Work order template ID
+            **kwargs: Additional parameters for CreateFromServiceRequest
+        """
+        params = {
+            'RequestId': service_request_id,
+            'EntityType': entity_type,
+            'WOTemplateId': template_id,
+            **kwargs
+        }
+        
+        response = self.session.get('Ams', 'WorkOrder', 'CreateFromServiceRequest', params)
+        response.raise_for_status()
+        return response.value[0] if response.value else {}
+
+    
+    
     def update_work_order(self, work_order_sid: int, **kwargs) -> Dict[str, Any]:
         """Update work order"""
         params = {
