@@ -223,8 +223,13 @@ def prepare_work_order(response: Dict[str, Any]) -> Dict[str, Any]:
           ``recent_space_out_of_service``, plus SDE fields when applicable.
     """
     parent_wo = response.get("parent_work_order", {}) or {}
-    template_id = parent_wo.get("WoTemplateId")
-    description = parent_wo.get("Description")
+    work_wo = response.get("work_order", {}) or {}
+
+    # Use the parent template/description when present; fall back to the
+    # work order itself for standalone templates (e.g. CC terminal 1586/1587/1588)
+    # that have no parent work order.
+    template_id = parent_wo.get("WoTemplateId") or work_wo.get("WoTemplateId")
+    description = parent_wo.get("Description") or work_wo.get("Description")
     parent_actual_finish_date = parent_wo.get("ActualFinishDate")
 
     tid = int(template_id) if template_id else None
