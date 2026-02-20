@@ -15,8 +15,8 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                 -- Get details about single work order
                 SELECT 
                     WorkOrderSid, WorkOrderId, Status, Description, Supervisor, SupervisorSid, ProjStartDate, ProjFinishDate, ActualStartDate, ActualFinishDate, RequestedBy, RequestedBySid,
-                    SubmitTo, SubmitToOpenBy, SubmitToOpenBySid, Priority, WoAddress, Location, WoxCoordinate, WoYCoordinate, WoClosedBy, ExpenseType, WoCategory, WoTemplateId, InitiateDate,
-                    InitiatedBy, InitiatedBySid, DateWoClosed
+                    SubmitToSid, SubmitTo, SubmitToOpenBy, SubmitToOpenBySid, Priority, WoAddress, Location, WoxCoordinate, WoYCoordinate, WoClosedBy, ExpenseType, WoCategory, WoTemplateId, 
+                    InitiateDate, InitiatedBy, InitiatedBySid, DateWoClosed
                 FROM CMMS.azteca.WorkOrder
                 WHERE DomainId = 3 AND WorkOrderSid = :work_order_sid
             ),

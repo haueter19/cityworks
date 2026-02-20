@@ -118,6 +118,10 @@ LOCATION_MAP = {
     "WS": 19,
 }
 
+cityworks_to_revenue_id_mapping = {
+    985: 5, 
+    1629: 2
+} # Add others as needed
 
 # ---------------------------------------------------------------------------
 # Workflow dispatch
@@ -861,13 +865,16 @@ def cc_terminal_update_revenue(work_order: Dict[str, Any]) -> Dict:
         raise exc.MissingRequiredValueError("Destination Location is required")
     if not work_order["custom_fields"].get("Date of Change"):
         raise exc.MissingRequiredValueError("Date of Change is required")
-    if not work_order.get("employee_id"):
+    if not work_order['work_order'].get("SubmitToSid"):
         raise exc.MissingRequiredValueError("employee_id is required")
 
     dest = work_order["custom_fields"]["Destination Location"]
     date_of_change = work_order["custom_fields"]["Date of Change"]
-    employee_id = work_order["employee_id"]
-    wo_sid = work_order.get("WorkOrderSid")
+    date_of_change = datetime.strptime(date_of_change, '%m/%d/%Y %I:%M:%S %p').strftime('%Y-%m-%d %H:%M:%S')
+    employee_id = work_order['work_order']['SubmitToSid']
+    # Translate Cityworks ID to Revenue ID
+    employee_id = cityworks_to_revenue_id_mapping.get(employee_id, employee_id) 
+    wo_sid = work_order['work_order'].get("WorkOrderSid")
 
     with revenue_ops.revenue_transaction() as conn:
         # 1. Look up device_id
@@ -885,7 +892,7 @@ def cc_terminal_update_revenue(work_order: Dict[str, Any]) -> Dict:
         if active.empty:
             raise exc.MissingRequiredValueError("No active revenue assignment found")
 
-        assignment_id = active.iloc[0]["assignment_id"]
+        assignment_id = int(active.iloc[0]["assignment_id"])
 
         # 4. Close active assignment
         update_count = revenue_ops.close_device_assignment(
@@ -1004,12 +1011,14 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
         raise exc.MissingRequiredValueError("Destination Location is required")
     if not work_order["custom_fields"].get("Date of Change"):
         raise exc.MissingRequiredValueError("Date of Change is required")
-    if not work_order.get("employee_id"):
+    if not work_order['work_order'].get("SubmitToSid"):
         raise exc.MissingRequiredValueError("employee_id is required")
 
     dest = work_order["custom_fields"]["Destination Location"]
     date_of_change = work_order["custom_fields"]["Date of Change"]
-    employee_id = work_order["employee_id"]
+    date_of_change = datetime.strptime(date_of_change, '%m/%d/%Y %I:%M:%S %p').strftime('%Y-%m-%d %H:%M:%S')
+    employee_id = work_order['work_order']["SubmitToSid"]
+    employee_id = cityworks_to_revenue_id_mapping.get(employee_id, employee_id)
     location_id = LOCATION_MAP.get(dest, -1)
 
     with ops.sde_transaction() as conn:
@@ -1029,13 +1038,13 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
             updates={
                 "DateRemoved": date_of_change,
                 "RemovedBy": employee_id,
-                "WorkOrderRemoveId": work_order["WorkOrderSid"],
+                "WorkOrderRemoveId": work_order['work_order']["WorkOrderSid"],
                 "Notes": dest,
                 "IsActive": 0,
             },
             where_clause="OBJECTID = :object_id AND TerminalID = :terminal_id",
             params={
-                "object_id": row["OBJECTID"],
+                "object_id": int(row["OBJECTID"]),
                 "terminal_id": row["TerminalID"],
             },
             conn=conn,
@@ -1045,12 +1054,12 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
         insert_count = ops.sde_insert(
             table_name="PU_CC_TERMINAL_HISTORY",
             data={
-                "DeviceID": row["base_device_id"],
+                "DeviceID": row["DeviceID"],
                 "TerminalID": row["TerminalID"],
                 "LocationID": location_id,
                 "DateAssigned": date_of_change,
                 "AssignedBy": employee_id,
-                "WorkOrderAssignID": work_order["WorkOrderSid"],
+                "WorkOrderAssignID": work_order['work_order']["WorkOrderSid"],
                 "Notes": dest,
                 "IsActive": 1,
             },
