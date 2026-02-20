@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import cityworks.client.exceptions as exc
 from . import operations as ops
+from . import revenue_ops
 
 
 # ---------------------------------------------------------------------------
@@ -834,6 +835,130 @@ def cc_terminal_add_asset(work_order: Dict[str, Any]) -> int:
         )
 
 
+def cc_terminal_update_revenue(work_order: Dict[str, Any]) -> Dict:
+    """Handle a CC terminal location change in the revenue database.
+
+    Executes as a single transaction:
+    1. Look up device_id from app.dim_device
+    2. Look up location_id from app.dim_facility / app.dim_location
+    3. Query the active assignment from app.fact_device_assignment
+    4. Close it (set end_date, end_by_id, workorder_remove_id, notes)
+    5. Insert a new active assignment at the destination location
+
+    Args:
+        work_order: Dict with ``assets[0]['EntityUid']``,
+            ``custom_fields['Destination Location']``,
+            ``custom_fields['Date of Change']``,
+            ``employee_id`` (int), ``WorkOrderSid``.
+
+    Returns:
+        ``{'updated': int, 'created': int}`` with row counts.
+    """
+    entity_uid = work_order["assets"][0].get("EntityUid")
+    if not entity_uid:
+        raise exc.MissingRequiredValueError("EntityUid is required")
+    if not work_order["custom_fields"].get("Destination Location"):
+        raise exc.MissingRequiredValueError("Destination Location is required")
+    if not work_order["custom_fields"].get("Date of Change"):
+        raise exc.MissingRequiredValueError("Date of Change is required")
+    if not work_order.get("employee_id"):
+        raise exc.MissingRequiredValueError("employee_id is required")
+
+    dest = work_order["custom_fields"]["Destination Location"]
+    date_of_change = work_order["custom_fields"]["Date of Change"]
+    employee_id = work_order["employee_id"]
+    wo_sid = work_order.get("WorkOrderSid")
+
+    with revenue_ops.revenue_transaction() as conn:
+        # 1. Look up device_id
+        device_id = revenue_ops.get_device_id(entity_uid, conn=conn)
+        if device_id is None:
+            raise exc.MissingRequiredValueError(f"No revenue device found for UID: {entity_uid}")
+
+        # 2. Look up location_id
+        location_id = revenue_ops.get_location_id(dest, conn=conn)
+        if location_id is None:
+            raise exc.MissingRequiredValueError(f"No revenue location found for: {dest}")
+
+        # 3. Query active assignment
+        active = revenue_ops.get_active_device_assignment(device_id, conn=conn)
+        if active.empty:
+            raise exc.MissingRequiredValueError("No active revenue assignment found")
+
+        assignment_id = active.iloc[0]["assignment_id"]
+
+        # 4. Close active assignment
+        update_count = revenue_ops.close_device_assignment(
+            assignment_id=assignment_id,
+            end_date=date_of_change,
+            end_by_id=employee_id,
+            wo_remove_id=wo_sid,
+            notes=dest,
+            conn=conn,
+        )
+
+        # 5. Insert new active assignment
+        insert_count = revenue_ops.insert_device_assignment(
+            device_id=device_id,
+            location_id=location_id,
+            assign_date=date_of_change,
+            assign_by_id=employee_id,
+            wo_assign_id=wo_sid,
+            notes=dest,
+            conn=conn,
+        )
+
+    return {"updated": update_count, "created": insert_count}
+
+
+def cc_terminal_move(work_order: Dict[str, Any]) -> Dict:
+    """Orchestrate a CC terminal location move across GIS and revenue databases.
+
+    Runs the GIS and revenue updates as independent transactions and reports
+    the outcome of each.  A failure in one does not prevent the other from
+    running, but both results are returned so the caller can surface any
+    partial failures.
+
+    Args:
+        work_order: Dict with all fields required by
+            :func:`cc_terminal_update_gis` and
+            :func:`cc_terminal_update_revenue`.
+
+    Returns:
+        Dict with ``'gis'`` and ``'revenue'`` keys (each a row-count dict),
+        plus an ``'errors'`` key containing any exception messages keyed by
+        database name.
+
+        Example (both succeeded)::
+
+            {"gis": {"updated": 1, "created": 1}, "revenue": {"updated": 1, "created": 1}}
+
+        Example (revenue failed)::
+
+            {
+                "gis": {"updated": 1, "created": 1},
+                "errors": {"revenue": "No active revenue assignment found"},
+            }
+    """
+    result: Dict[str, Any] = {}
+    errors: Dict[str, str] = {}
+
+    try:
+        result["gis"] = cc_terminal_update_gis(work_order)
+    except Exception as e:
+        errors["gis"] = str(e)
+
+    try:
+        result["revenue"] = cc_terminal_update_revenue(work_order)
+    except Exception as e:
+        errors["revenue"] = str(e)
+
+    if errors:
+        result["errors"] = errors
+
+    return result
+
+
 def cc_terminal_remove_asset(work_order: Dict[str, Any]) -> int:
     """Remove a portable CC terminal from service.
 
@@ -857,17 +982,18 @@ def cc_terminal_remove_asset(work_order: Dict[str, Any]) -> int:
 
 
 def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
-    """Handle a CC terminal location change.
+    """Handle a CC terminal location change in the GIS database.
 
     Executes as a single transaction:
-    1. Query the active assignment
-    2. Close it (set DateRemoved, IsActive=0)
+    1. Query the active assignment from PU_CC_TERMINAL_HISTORY
+    2. Close it (set DateRemoved, RemovedBy, WorkOrderRemoveId, IsActive=0)
     3. Insert a new active assignment at the destination location
 
     Args:
         work_order: Dict with ``assets[0]['EntityUid']``,
-            ``custom_fields['Destination Location']``, ``ActualFinishDate``,
-            ``InitiatedBy``, ``WorkOrderSid``, ``instructions``.
+            ``custom_fields['Destination Location']``,
+            ``custom_fields['Date of Change']``,
+            ``employee_id`` (int), ``WorkOrderSid``.
 
     Returns:
         ``{'updated': int, 'created': int}`` with row counts.
@@ -876,8 +1002,14 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
         raise exc.MissingRequiredValueError("EntityUid is required")
     if not work_order["custom_fields"].get("Destination Location"):
         raise exc.MissingRequiredValueError("Destination Location is required")
+    if not work_order["custom_fields"].get("Date of Change"):
+        raise exc.MissingRequiredValueError("Date of Change is required")
+    if not work_order.get("employee_id"):
+        raise exc.MissingRequiredValueError("employee_id is required")
 
     dest = work_order["custom_fields"]["Destination Location"]
+    date_of_change = work_order["custom_fields"]["Date of Change"]
+    employee_id = work_order["employee_id"]
     location_id = LOCATION_MAP.get(dest, -1)
 
     with ops.sde_transaction() as conn:
@@ -887,7 +1019,7 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
             conn=conn,
         )
         if active.empty:
-            raise exc.MissingRequiredValueError("No active terminal assignment found")
+            raise exc.MissingRequiredValueError("No active GIS terminal assignment found")
 
         row = active.iloc[0]
 
@@ -895,10 +1027,10 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
         update_count = ops.sde_update(
             table_name="PU_CC_TERMINAL_HISTORY",
             updates={
-                "DateRemoved": work_order["ActualFinishDate"],
-                "RemovedBy": work_order["InitiatedBy"],
+                "DateRemoved": date_of_change,
+                "RemovedBy": employee_id,
                 "WorkOrderRemoveId": work_order["WorkOrderSid"],
-                "Notes": work_order["instructions"],
+                "Notes": dest,
                 "IsActive": 0,
             },
             where_clause="OBJECTID = :object_id AND TerminalID = :terminal_id",
@@ -916,10 +1048,10 @@ def cc_terminal_update_gis(work_order: Dict[str, Any]) -> Dict:
                 "DeviceID": row["base_device_id"],
                 "TerminalID": row["TerminalID"],
                 "LocationID": location_id,
-                "DateAssigned": work_order["ActualFinishDate"],
-                "AssignedBy": work_order["InitiatedBy"],
+                "DateAssigned": date_of_change,
+                "AssignedBy": employee_id,
                 "WorkOrderAssignID": work_order["WorkOrderSid"],
-                "Notes": work_order["instructions"],
+                "Notes": dest,
                 "IsActive": 1,
             },
             auto_increment_fields=["OBJECTID"],
