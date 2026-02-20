@@ -295,15 +295,15 @@ def sde_insert(
         params[col] = val
 
     # Geometry point
+    # Coordinates are formatted in Python to avoid SQL Server's lossy
+    # CAST(float AS varchar) which defaults to 6 significant digits.
     if geometry_point is not None:
         columns.append(geometry_column)
+        x_str = f"{geometry_point['x']:.15g}"
+        y_str = f"{geometry_point['y']:.15g}"
         value_exprs.append(
-            f"geometry::STPointFromText("
-            f"'POINT(' + CAST(:_geo_x AS varchar(50)) + ' ' "
-            f"+ CAST(:_geo_y AS varchar(50)) + ')', {SRID})"
+            f"geometry::STPointFromText('POINT({x_str} {y_str})', {SRID})"
         )
-        params["_geo_x"] = geometry_point["x"]
-        params["_geo_y"] = geometry_point["y"]
 
     col_str = ", ".join(columns)
     val_str = ", ".join(value_exprs)
