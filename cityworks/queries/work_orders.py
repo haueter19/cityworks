@@ -144,6 +144,7 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     r.Status, 
                     r.InitiatedBy, 
                     r.DateTimeInit,
+                    r.Details,
                     src.Comments,
                     (SELECT cf.CustFieldName, cf.CustFieldValue
                     FROM CMMS.azteca.ReqCustField cf
