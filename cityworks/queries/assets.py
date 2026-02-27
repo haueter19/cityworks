@@ -48,7 +48,7 @@ def get_entity_id_from_space_name(assets: List[int]) -> pd.DataFrame:
     assets_str = "','".join([str(a) for a in assets])
 
     query = text(f"""
-                 SELECT SpaceName, cwAssetID FROM Traffic.data_admin8.PU_METERS_ON_ST WHERE SpaceName in ('{assets_str}')
+                 SELECT SpaceName, cwAssetID, DateRemoved FROM Traffic.data_admin8.PU_METERS_ON_ST WHERE SpaceName in ('{assets_str}')
                     """)
     df = pd.read_sql(query, get_engine(database='Traffic'))
     return df
