@@ -243,18 +243,19 @@ def get_work_orders(template_description: str = 'Update GIS', statuses: List[str
             wo.WorkOrderId, wo.WorkOrderSid, wo.Description, wo.Status, wo.Supervisor, wo.RequestedBy, wo.InitiatedBy, wo.InitiateDate, wo.SubmitTo, wo.DateSubmitTo, wo.DateSubmitToOpen, wo.WorkCompletedBy, 
             wo.Location, wo.WoAddress, wo.ProjStartDate, wo.ProjFinishDate, wo.ActualStartDate, wo.ActualFinishDate, wo.Cancel, wo.WoXCoordinate x_coord, wo.WOYCOORDINATE y_coord, 
             wo.SupervisorSid, wo.RequestedBySid, wo.InitiatedBySid, wo.SubmitToSid, wo.SubmitToOpenBySid, wo.WorkCompletedBySid, wo.WoTemplateId, 
-            COALESCE(pa.DESCRIPTION, 'TE Signing') ParentTemplateDescription --, al.*
+            pa.WorkOrderSid ParentWorkOrderSid, pa.ActualFinishDate ParentActualFinishDate, COALESCE(pa.DESCRIPTION, 'TE Signing') ParentTemplateDescription, 
+            (SELECT count(*) FROM azteca.WorkOrderEntity woe WHERE woe.WorkOrderSid=wo.WorkOrderSid) num_assets
         FROM CMMS.azteca.WorkOrder wo
         left join CMMS.azteca.ActivityLink al On (wo.WorkorderId=al.DESTACTIVITYID)
         left join CMMS.azteca.WorkOrder pa On (al.SOURCEACTIVITYID=pa.WorkOrderId)
         WHERE
             wo.DomainID = 3
             AND wo.Description = :template_description
-            --AND wo.WOTEMPLATEID = '217'
+            --AND wo.WOTEMPLATEID = '217', '1586'
             AND wo.Status IN ('{statuses_str}')
             AND (al.LINKTYPE = 'Parent' or al.LINKTYPE IS NULL)
             AND (al.SOURCEACTIVITYTYPE IN ('WorkOrder', 'ServiceRequest') Or al.SOURCEACTIVITYTYPE IS NULL)
-        ORDER BY 1 DESC
+        ORDER BY wo.InitiateDate DESC
     """)
     df = pd.read_sql(query, get_engine(database='cmms', server='pubworksdbprd'), params={'template_description': template_description})
     return df
