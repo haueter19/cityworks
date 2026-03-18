@@ -13,23 +13,47 @@ def get_asset_history(asset_id: str) -> pd.DataFrame:
     """
     query = text("""
                 SELECT 
-                    woe.WorkOrderSid
-                    ,wo.InitiateDate
+                    woe.WorkOrderId
+                    ,al.SourceActivityStringId ParentWorkOrderId
                     ,wo.Description
+                    ,wo.Status
+                    ,(select 
+                        TOP 1 ch.WorkOrderId
+                    from azteca.WorkOrder pa 
+                    inner join azteca.ActivityLink al On (al.SourceActivityStringId=pa.WorkOrderId)
+                    inner join azteca.WorkOrder ch On (al.DestActivityStringId=ch.WorkOrderId)
+                    where 
+                        --SourceActivityStringId = '60727'
+                        --DestActivityStringId = '60727'
+                        al.LinkType = 'Parent'
+                        AND pa.DomainId = 3
+                        AND pa.WorkOrderId = wo.WorkOrderId
+                        AND ch.Description = 'Update GIS'
+                    ) As has_update_gis
+                    ,wo.InitiateDate
+                    ,wo.DateSubmitTo
                     ,wo.ActualFinishDate
                     ,wo.DateWoClosed
+                    ,wo.InitiatedBy   
+                    ,wo.SubmitTo
+                    ,wo.WorkCompletedBy
+                    ,wo.WoClosedBy
+                    ,wo.WorkOrderId
                     ,EntityUid
                     ,EntityType
                     ,Feature_ID
                     ,Feature_Type
                     ,EntitySid
-                    ,WorkCompleted
-                    ,woe.WorkOrderSid
                 FROM CMMS.azteca.WorkOrderEntity woe
-                INNER JOIN CMMS.azteca.WorkOrder wo On (woe.WorkOrderSid=wo.WorkOrderSid)
+                INNER JOIN CMMS.azteca.WorkOrder wo On (woe.WorkOrderId=wo.WorkOrderId)
+                LEFT JOIN CMMS.azteca.ActivityLink al On (wo.WorkOrderId=al.DestActivityStringId and al.LinkType != 'Related' AND al.SourceActivityType != 'Inspection')
                 WHERE
-                    EntityUid = :asset_id
-                ORDER BY wo.InitiateDate desc, wo.ActualFinishDate desc
+                    wo.DomainId = 3
+                    AND wo.Status != 'Cancel'
+                    AND (al.LinkType = 'Parent' OR al.LinkType IS NULL)
+                    AND (al.SourceActivityType = 'WorkOrder' OR al.SourceActivityType IS NULL)
+                    AND EntityUid = :asset_id
+                ORDER BY wo.DateSubmitTo desc, wo.InitiateDate desc, wo.ActualFinishDate desc
                 """)
     df = pd.read_sql(query, get_engine(database='CMMS'), params={'asset_id': asset_id})
     return df
@@ -45,10 +69,32 @@ def get_entity_id_from_space_name(assets: List[int]) -> pd.DataFrame:
     :return: Description
     :rtype: DataFrame
     """
+    if not isinstance(assets, list):
+        assets = [assets]
     assets_str = "','".join([str(a) for a in assets])
 
     query = text(f"""
                  SELECT SpaceName, cwAssetID, DateRemoved FROM Traffic.data_admin8.PU_METERS_ON_ST WHERE SpaceName in ('{assets_str}')
+                    """)
+    df = pd.read_sql(query, get_engine(database='Traffic'))
+    return df
+
+
+def get_space_name_from_entity_id(assets: List[int]) -> pd.DataFrame:
+    """
+    Docstring for get_space_name_from_entity_id
+    
+    :param assets: list of cwAssetIDs
+    :type assets: List[int]
+    :return: Description
+    :rtype: DataFrame
+    """
+    if not isinstance(assets, list):
+        assets = [assets]
+    assets_str = "','".join([str(a) for a in assets])
+
+    query = text(f"""
+                 SELECT SpaceName, cwAssetID, DateRemoved FROM Traffic.data_admin8.PU_METERS_ON_ST WHERE cwAssetID in ('{assets_str}')
                     """)
     df = pd.read_sql(query, get_engine(database='Traffic'))
     return df
