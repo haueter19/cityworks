@@ -88,7 +88,10 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     al.DESTACTIVITYID,
                     0 AS Level
                 FROM CMMS.azteca.ACTIVITYLINK al
-                WHERE al.DESTACTIVITYID = :work_order_sid
+                WHERE 
+                    al.DESTACTIVITYID = :work_order_sid
+                    AND al.DestActivityType != 'Inspection'
+		            AND al.SourceActivityType != 'Inspection'
                 
                 UNION ALL
                 
@@ -98,10 +101,11 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     al.DESTACTIVITYID,
                     ah.Level + 1
                 FROM CMMS.azteca.ACTIVITYLINK al
-                INNER JOIN ActivityHierarchy ah 
-                    ON al.DESTACTIVITYID = ah.SOURCEACTIVITYID
-                WHERE ah.SOURCEACTIVITYTYPE != 'ServiceRequest'
-                    AND ah.Level < 10
+                INNER JOIN ActivityHierarchy ah ON (al.DESTACTIVITYID = ah.SOURCEACTIVITYID)
+                WHERE 
+                    ah.SOURCEACTIVITYTYPE != 'ServiceRequest'
+                    AND al.DestActivityType != 'Inspection'
+                    AND ah.Level < 25
             )
             -- Combine all results with identifiers
             SELECT 
@@ -221,7 +225,7 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     
                         # Convert array to flattened dict
                         response['service_request'].update({
-                            item['CustFieldName']: item['CustFieldValue'] 
+                            item.get('CustFieldName'): item.get('CustFieldValue') 
                             for item in cf
                         })
                     else:
