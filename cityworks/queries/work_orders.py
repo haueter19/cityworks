@@ -149,13 +149,13 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     r.InitiatedBy, 
                     r.DateTimeInit,
                     r.Details,
-                    src.Comments,
+                    (SELECT Comments As Comment FROM CMMS.azteca.ServiceRequestComment WHERE r.RequestId = RequestId FOR JSON PATH) Comments,
                     (SELECT cf.CustFieldName, cf.CustFieldValue
                     FROM CMMS.azteca.ReqCustField cf
                     WHERE r.REQUESTID = cf.REQUESTID
                     FOR JSON PATH) as cf
                 FROM CMMS.azteca.Request r
-                LEFT JOIN CMMS.azteca.ServiceRequestComment src On (r.RequestId=src.RequestId)
+                --LEFT JOIN CMMS.azteca.ServiceRequestComment src On (r.RequestId=src.RequestId)
                 WHERE
                     r.RequestId = (SELECT TOP 1
                                     SOURCEACTIVITYID AS ServiceRequestID
