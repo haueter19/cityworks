@@ -145,11 +145,29 @@ class WorkOrderAPI:
         return response.value
     
 
+    def update_service_request(self, request_id: int, **kwargs) -> Dict[str, Any]:
+        """Update service request associated with a work order"""
+        params = {
+            'RequestId': request_id,
+            **kwargs
+        }
+        response = self.session.get('Ams', 'ServiceRequest', 'Update', params)
+        response.raise_for_status()
+        return response.value
+    
+        
     def search(self, **kwargs) -> List[str]:
         """"""
         params = {
             **kwargs
         }
         response = self.session.get('Ams', 'WorkOrder', 'Search', params)
+        response.raise_for_status()
+        return response.value
+
+
+    def delete_employee(self, employee_id: int) -> Dict[str, Any]:
+        """Delete employee from work order"""
+        response = self.session.get('Ams', 'Employee', 'Delete', {'EmployeeSids': [employee_id]}) # EmployeeSids must be a list
         response.raise_for_status()
         return response.value
