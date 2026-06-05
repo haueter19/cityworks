@@ -40,6 +40,7 @@ def build_connection_string(
     """
     server_from_database = {
         'Traffic':'arcsde',
+        'cw':'pubworksdbprd',
         'cmms':'pubworksdbprd',
         'CMMS':'pubworksdbprd',
         'PUReporting':'pubworksdbprd'

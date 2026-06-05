@@ -17,7 +17,7 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     WorkOrderSid, WorkOrderId, Status, Description, Supervisor, SupervisorSid, ProjStartDate, ProjFinishDate, ActualStartDate, ActualFinishDate, RequestedBy, RequestedBySid,
                     SubmitToSid, SubmitTo, SubmitToOpenBy, SubmitToOpenBySid, Priority, WoAddress, Location, WoxCoordinate, WoYCoordinate, WoClosedBy, ExpenseType, WoCategory, WoTemplateId, 
                     InitiateDate, InitiatedBy, InitiatedBySid, DateWoClosed
-                FROM CMMS.azteca.WorkOrder
+                FROM CITYWORKS.azteca.WorkOrder
                 WHERE DomainId = 3 AND WorkOrderSid = :work_order_sid
             ),
             parent_work_order AS (
@@ -29,8 +29,8 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     p.Supervisor, p.SupervisorSid, p.WoAddress, p.Location,
                     p.WoTemplateId,
                     al.ActivityLinkId
-                FROM CMMS.azteca.ActivityLink al
-                INNER JOIN CMMS.azteca.WorkOrder p ON (al.SourceActivityId = p.WorkOrderSid)
+                FROM CITYWORKS.azteca.ActivityLink al
+                INNER JOIN CITYWORKS.azteca.WorkOrder p ON (al.SourceActivityId = p.WorkOrderSid)
                 WHERE
                     p.DomainId = 3
                     AND al.DestActivityId = :work_order_sid
@@ -41,14 +41,14 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                 -- Get parent work order's instructions
                 SELECT
                     i.WorkOrderSid, i.WorkOrderId, i.SeqId, i.Instructions
-                FROM CMMS.azteca.WoInstruction i
+                FROM CITYWORKS.azteca.WoInstruction i
                 INNER JOIN parent_work_order p ON (i.WorkOrderSid = p.WorkOrderSid)
             ),
             assets AS (
                 -- Get all entities associated with single work order
                 SELECT
                     WorkOrderSid, WorkOrderId, EntityUid, EntityType, EntitySid, X, Y
-                FROM CMMS.azteca.WORKORDERENTITY
+                FROM CITYWORKS.azteca.WORKORDERENTITY
                 WHERE WorkOrderSid = :work_order_sid
             ),
             comments AS (
@@ -56,20 +56,20 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                 SELECT 
                     CommentId, WorkOrderSid, WorkOrderId, AuthorSid, Comments, 
                     DateCreated, LastModified, LastModifiedBySid
-                FROM CMMS.azteca.WorkOrderComment
+                FROM CITYWORKS.azteca.WorkOrderComment
                 WHERE WorkOrderSid = :work_order_sid
             ),
             instructions AS (
                 -- Get all instructions
                 SELECT
                     WorkOrderSid, WorkOrderId, SeqId, Instructions
-                FROM CMMS.azteca.WoInstruction
+                FROM CITYWORKS.azteca.WoInstruction
                 WHERE WorkOrderSid = :work_order_sid 
             ),
             custom_fields AS (
                 -- Get custom fields
                 SELECT WorkOrderSid, WorkOrderId, CustFieldId, CustFieldName, CustFieldValue
-                FROM CMMS.azteca.WoCustField
+                FROM CITYWORKS.azteca.WoCustField
                 WHERE WorkOrderSid = :work_order_sid
             ),
             parent_custom_fields AS (
@@ -79,7 +79,7 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     CustFieldName,
                     CustFieldValue
                 FROM parent_work_order pwo
-                INNER JOIN CMMS.azteca.WoCustField cf On (pwo.WorkOrderSid=cf.WorkOrderSid)
+                INNER JOIN CITYWORKS.azteca.WoCustField cf On (pwo.WorkOrderSid=cf.WorkOrderSid)
                 WHERE cf.WorkOrderSid = pwo.WorkOrderSid
             ), ActivityHierarchy AS (
                 SELECT 
@@ -87,7 +87,7 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     al.SOURCEACTIVITYTYPE,
                     al.DESTACTIVITYID,
                     0 AS Level
-                FROM CMMS.azteca.ACTIVITYLINK al
+                FROM CITYWORKS.azteca.ACTIVITYLINK al
                 WHERE 
                     al.DESTACTIVITYID = :work_order_sid
                     AND al.DestActivityType != 'Inspection'
@@ -100,7 +100,7 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     al.SOURCEACTIVITYTYPE,
                     al.DESTACTIVITYID,
                     ah.Level + 1
-                FROM CMMS.azteca.ACTIVITYLINK al
+                FROM CITYWORKS.azteca.ACTIVITYLINK al
                 INNER JOIN ActivityHierarchy ah ON (al.DESTACTIVITYID = ah.SOURCEACTIVITYID)
                 WHERE 
                     ah.SOURCEACTIVITYTYPE != 'ServiceRequest'
@@ -149,13 +149,13 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                     r.InitiatedBy, 
                     r.DateTimeInit,
                     r.Details,
-                    (SELECT Comments As Comment FROM CMMS.azteca.ServiceRequestComment WHERE r.RequestId = RequestId FOR JSON PATH) Comments,
+                    (SELECT Comments As Comment FROM CITYWORKS.azteca.ServiceRequestComment WHERE r.RequestId = RequestId FOR JSON PATH) Comments,
                     (SELECT cf.CustFieldName, cf.CustFieldValue
-                    FROM CMMS.azteca.ReqCustField cf
+                    FROM CITYWORKS.azteca.ReqCustField cf
                     WHERE r.REQUESTID = cf.REQUESTID
                     FOR JSON PATH) as cf
-                FROM CMMS.azteca.Request r
-                --LEFT JOIN CMMS.azteca.ServiceRequestComment src On (r.RequestId=src.RequestId)
+                FROM CITYWORKS.azteca.Request r
+                --LEFT JOIN CITYWORKS.azteca.ServiceRequestComment src On (r.RequestId=src.RequestId)
                 WHERE
                     r.RequestId = (SELECT TOP 1
                                     SOURCEACTIVITYID AS ServiceRequestID
@@ -165,7 +165,7 @@ def get_work_order_details_json(work_order_sid: int) -> pd.DataFrame:
                 FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) as json_data
             """)
     # Execute the query, return a dataframe
-    df = pd.read_sql(query, get_engine(database='cmms', server='pubworksdbprd'), params={'work_order_sid': work_order_sid})
+    df = pd.read_sql(query, get_engine(database='CITYWORKS', server='pubworksdbprd'), params={'work_order_sid': work_order_sid})
 
     if df.shape[0] == 0:
         return 
@@ -249,9 +249,9 @@ def get_work_orders(template_description: str = 'Update GIS', statuses: List[str
             wo.SupervisorSid, wo.RequestedBySid, wo.InitiatedBySid, wo.SubmitToSid, wo.SubmitToOpenBySid, wo.WorkCompletedBySid, wo.WoTemplateId, 
             pa.WorkOrderSid ParentWorkOrderSid, pa.ActualFinishDate ParentActualFinishDate, COALESCE(pa.DESCRIPTION, 'TE Signing') ParentTemplateDescription, 
             (SELECT count(*) FROM azteca.WorkOrderEntity woe WHERE woe.WorkOrderSid=wo.WorkOrderSid) num_assets
-        FROM CMMS.azteca.WorkOrder wo
-        left join CMMS.azteca.ActivityLink al On (wo.WorkorderId=al.DESTACTIVITYID)
-        left join CMMS.azteca.WorkOrder pa On (al.SOURCEACTIVITYID=pa.WorkOrderId)
+        FROM CITYWORKS.azteca.WorkOrder wo
+        left join CITYWORKS.azteca.ActivityLink al On (wo.WorkorderId=al.DESTACTIVITYID)
+        left join CITYWORKS.azteca.WorkOrder pa On (al.SOURCEACTIVITYID=pa.WorkOrderId)
         WHERE
             wo.DomainID = 3
             AND wo.Description = :template_description
@@ -261,7 +261,7 @@ def get_work_orders(template_description: str = 'Update GIS', statuses: List[str
             AND (al.SOURCEACTIVITYTYPE IN ('WorkOrder', 'ServiceRequest') Or al.SOURCEACTIVITYTYPE IS NULL)
         ORDER BY wo.InitiateDate DESC
     """)
-    df = pd.read_sql(query, get_engine(database='cmms', server='pubworksdbprd'), params={'template_description': template_description})
+    df = pd.read_sql(query, get_engine(database='CITYWORKS', server='pubworksdbprd'), params={'template_description': template_description})
     return df
 
 
@@ -326,7 +326,7 @@ def get_activity_tree(work_order_sid: int, direction: Optional[str] = 'origin', 
                 FROM ActivityHierarchy
                 ORDER BY Level, {destination_id};
                  """)
-    df = pd.read_sql(query, get_engine(database='cmms', server='pubworksdbprd'), params={'work_order_sid': work_order_sid, 'level_limit':level_limit})
+    df = pd.read_sql(query, get_engine(database='CITYWORKS', server='pubworksdbprd'), params={'work_order_sid': work_order_sid, 'level_limit':level_limit})
     return df
 
 
@@ -356,5 +356,5 @@ def get_work_orders_missing_update_gis(template_description: str = 'Hood/Sign Sp
                         )
                     order by wo.InitiateDate desc
                  """)
-    df = pd.read_sql(query, get_engine(database='cmms', server='pubworksdbprd'), params={'template_description':template_description, 'date_from': date_from})
+    df = pd.read_sql(query, get_engine(database='CITYWORKS', server='pubworksdbprd'), params={'template_description':template_description, 'date_from': date_from})
     return df

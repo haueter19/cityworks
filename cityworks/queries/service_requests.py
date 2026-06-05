@@ -20,5 +20,5 @@ def get_service_request_meter_oos(custom_field_id: Optional[int] = 1768, custom_
                         AND cf.CUSTFIELDVALUE = :custom_field_value
                 """)
     
-    df = pd.read_sql(query, get_engine(database='cmms', server='pubworksdbprd'), params={'custom_field_id':custom_field_id, 'custom_field_value': custom_field_value})
+    df = pd.read_sql(query, get_engine(database='CITYWORKS', server='pubworksdbprd'), params={'custom_field_id':custom_field_id, 'custom_field_value': custom_field_value})
     return df

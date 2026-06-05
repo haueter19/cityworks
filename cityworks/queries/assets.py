@@ -44,9 +44,9 @@ def get_asset_history(asset_id: str) -> pd.DataFrame:
                     ,Feature_ID
                     ,Feature_Type
                     ,EntitySid
-                FROM CMMS.azteca.WorkOrderEntity woe
-                INNER JOIN CMMS.azteca.WorkOrder wo On (woe.WorkOrderId=wo.WorkOrderId)
-                LEFT JOIN CMMS.azteca.ActivityLink al On (wo.WorkOrderId=al.DestActivityStringId and al.LinkType != 'Related' AND al.SourceActivityType != 'Inspection')
+                FROM CITYWORKS.azteca.WorkOrderEntity woe
+                INNER JOIN CITYWORKS.azteca.WorkOrder wo On (woe.WorkOrderId=wo.WorkOrderId)
+                LEFT JOIN CITYWORKS.azteca.ActivityLink al On (wo.WorkOrderId=al.DestActivityStringId and al.LinkType != 'Related' AND al.SourceActivityType != 'Inspection')
                 WHERE
                     wo.DomainId = 3
                     AND wo.Status != 'Cancel'
@@ -55,7 +55,7 @@ def get_asset_history(asset_id: str) -> pd.DataFrame:
                     AND EntityUid = :asset_id
                 ORDER BY wo.DateSubmitTo desc, wo.InitiateDate desc, wo.ActualFinishDate desc
                 """)
-    df = pd.read_sql(query, get_engine(database='CMMS'), params={'asset_id': asset_id})
+    df = pd.read_sql(query, get_engine(database='CITYWORKS'), params={'asset_id': asset_id})
     return df
 
 

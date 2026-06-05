@@ -29,8 +29,8 @@ CC_TERMINAL_LAYERS = {"PU_REVENUE_CREDITCARDTERMINALS"}
 # service_request.
 SIGN_DATE_FIELDS = {
     "parent_custom_fields": {
-        "start": "Posting Begin Date",
-        "end": "Posting End Date",
+        "start": "ProjStartDate", # used to be from custom field "Posting Begin Date",
+        "end": "ProjFinishDate", # used to be from custom field "Posting End Date",
     },
     "service_request": {
         "start": "Start Date",
