@@ -19,7 +19,7 @@ class CityworksConfig:
         urls = self._base_urls or {
             'dev': os.getenv('CITYWORKS_DEV_URL', 'http://cmmsappdev/cityworks_dev/services'),
             'test': os.getenv('CITYWORKS_TEST_URL', 'http://cmmsappdev/cityworks_test/services'),
-            'prod': os.getenv('CITYWORKS_PROD_URL', 'https://cmms.cityofmadison.com/Cityworks/services')
+            'prod': os.getenv('CITYWORKS_PROD_URL', 'https://cmms.cityofmadison.com/Cityworks23/services')
         }
         
         if self.environment not in urls:
