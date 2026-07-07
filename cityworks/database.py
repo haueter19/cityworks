@@ -43,6 +43,7 @@ def build_connection_string(
         'cw':'pubworksdbprd',
         'cmms':'pubworksdbprd',
         'CMMS':'pubworksdbprd',
+        'CITYWORKS':'pubworksdbprd',
         'PUReporting':'pubworksdbprd'
     }
     if not server:
