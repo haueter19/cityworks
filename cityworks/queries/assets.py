@@ -19,9 +19,9 @@ def get_asset_history(asset_id: str) -> pd.DataFrame:
                     ,wo.Status
                     ,(select 
                         TOP 1 ch.WorkOrderId
-                    from azteca.WorkOrder pa 
-                    inner join azteca.ActivityLink al On (al.SourceActivityStringId=pa.WorkOrderId)
-                    inner join azteca.WorkOrder ch On (al.DestActivityStringId=ch.WorkOrderId)
+                    from CITYWORKS.azteca.WorkOrder pa 
+                    inner join CITYWORKS.azteca.ActivityLink al On (al.SourceActivityStringId=pa.WorkOrderId)
+                    inner join CITYWORKS.azteca.WorkOrder ch On (al.DestActivityStringId=ch.WorkOrderId)
                     where 
                         --SourceActivityStringId = '60727'
                         --DestActivityStringId = '60727'
