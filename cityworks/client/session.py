@@ -58,6 +58,8 @@ class CityworksSession:
         """
         url = self.config.base_url + f"{self.AUTH_ENDPOINT}/Authenticate"
         params = {"LoginName": username, "Password": password}
+        print(params)
+        print(self._format_params(params, include_token=False))
         
         try:
             response = self._session.post(url, data=self._format_params(params, include_token=False))
@@ -88,8 +90,8 @@ class CityworksSession:
         if username is None:
             username = getpass.getuser()
             #username = input("Username (CITY/{user}): ").strip()
-            if not username.startswith('CITY/'):
-                username = f'CITY/{username}'
+            #if not username.startswith('CITY/'):
+            #    username = f'CITY/{username}'
         
         password = getpass.getpass("Password: ")
         return self.authenticate(username, password)
@@ -132,7 +134,7 @@ class CityworksSession:
         Returns:
             CityworksResponse object
         """
-        self._ensure_authenticated()
+        #self._ensure_authenticated()
         self._apply_rate_limit()
         
         url = self.config.get_endpoint_url(service_category, service, endpoint)
