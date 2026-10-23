@@ -33,6 +33,8 @@ def get_asset_history(asset_id: str) -> pd.DataFrame:
                     ,wo.InitiateDate
                     ,wo.DateSubmitTo
                     ,wo.ActualFinishDate
+                    ,wo.ProjStartDate
+                    ,wo.ProjFinishDate
                     ,wo.DateWoClosed
                     ,wo.InitiatedBy   
                     ,wo.SubmitTo
