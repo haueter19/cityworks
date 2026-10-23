@@ -291,7 +291,7 @@ def get_activity_tree(work_order_sid: int, direction: Optional[str] = 'origin', 
                         al.DestActivityType,
                         al.SourceActivityId,
                         al.SourceActivityType,
-                        al.LinkType,        
+                        al.LinkType,
                         0 AS Level
                     FROM azteca.ActivityLink al
                     WHERE 
@@ -317,13 +317,19 @@ def get_activity_tree(work_order_sid: int, direction: Optional[str] = 'origin', 
                         AND ah.Level < :level_limit  -- Safety limit to prevent infinite loops
                 )
                 SELECT 
-                    DestActivityId,
-                    DestActivityType,
-                    SourceActivityId,
-                    SourceActivityType,
-                    LinkType,
-                    Level
-                FROM ActivityHierarchy
+                    ah.DestActivityType,
+                    ah.DestActivityId,
+                    dest_wo.Description AS DestinationDescription,
+                    ah.SourceActivityType,
+                    ah.SourceActivityId,
+                    COALESCE(source_wo.Description, source_sr.Description) AS SourceDescription,
+                    ah.LinkType,
+                    ah.Level
+                FROM ActivityHierarchy ah
+                LEFT JOIN azteca.WorkOrder dest_wo ON (ah.DestActivityId = dest_wo.WorkOrderId AND ah.DestActivityType = 'WorkOrder')
+                LEFT JOIN azteca.WorkOrder source_wo ON (ah.SourceActivityId = source_wo.WorkOrderId AND ah.SourceActivityType = 'WorkOrder')
+                LEFT JOIN azteca.Request source_sr ON (ah.SourceActivityId = source_sr.RequestId AND ah.SourceActivityType = 'ServiceRequest')
+                
                 ORDER BY Level, {destination_id};
                  """)
     df = pd.read_sql(query, get_engine(database='CITYWORKS', server='pubworksdbprd'), params={'work_order_sid': work_order_sid, 'level_limit':level_limit})
