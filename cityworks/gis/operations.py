@@ -180,9 +180,9 @@ def get_spaces_out_of_service(spaces: List[str]) -> gpd.GeoDataFrame:
 
     return gpd.read_postgis(f"""
         SELECT
-            OBJECTID, Event_ID, SpaceNumber, Date_Out, Date_Returned, Space_Type,
-            Note, RevenueCollected, RemovalMethod, RemovedBy, ReasonRemoved, ADA_Relocation,
-            created_user, created_date, last_edited_user, last_edited_date,
+            OBJECTID, Event_ID, SpaceNumber, Date_Out, Date_Returned, Space_Type, WOrkOrderOut,
+            WorkOrderReturn, SpaceID, Note, RevenueCollected, RemovalMethod, RemovedBy, ReasonRemoved, 
+            ADA_Relocation, created_user, created_date, last_edited_user, last_edited_date,
             SHAPE.STAsBinary() as geometry
         FROM {_fqn('PU_SPACESOUTOFSERVICE')}
         WHERE
